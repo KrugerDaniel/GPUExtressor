@@ -71,4 +71,4 @@ int main() {
 }
 
 // command to create exe -> nvcc main.cu -o main
-// execute -> .\main.exe
+// execute -> .\main.exe 
