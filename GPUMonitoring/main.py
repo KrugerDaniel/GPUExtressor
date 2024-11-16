@@ -78,7 +78,7 @@ def create_interface():
     # Campo de entrada para o tipo de teste
     frame_input = ttk.Frame(root)
     frame_input.pack(side=tk.TOP, fill=tk.X, pady=10)
-    label_input = ttk.Label(frame_input, text="Digite o tipo de teste (ex: 1, 2):")
+    label_input = ttk.Label(frame_input, text="Digite o tipo de teste (1 - 5):")
     label_input.pack(side=tk.LEFT, padx=5)
     entry_test_type = ttk.Entry(frame_input)
     entry_test_type.pack(side=tk.LEFT, padx=5)
