@@ -4,9 +4,19 @@
 #include <vector>
 #include <atomic>
 #include <thread>
+#include <nvml.h>
+
+// Comando mágico : nvcc gpu_extressor.cu -o gpu_extressor -L"C:\Program Files\NVIDIA Corporation\NVSMI" -lnvml
 
 // Variável global para controlar quando parar o estresse
 std::atomic<bool> stopStress(false);
+
+cudaDeviceProp getCudaDeviceProp(int device) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+
+    return prop;
+}
 
 // Função para obter informações da GPU
 void getGPUInfo() {
@@ -19,8 +29,7 @@ void getGPUInfo() {
     }
 
     for (int device = 0; device < deviceCount; ++device) {
-        cudaDeviceProp prop;
-        cudaGetDeviceProperties(&prop, device);
+        cudaDeviceProp prop = getCudaDeviceProp(device);
         std::cout << "Informações da GPU " << device << ":\n";
         std::cout << "  Nome: " << prop.name << std::endl;
         std::cout << "  Memória Global: " << prop.totalGlobalMem / (1024 * 1024) << " MB" << std::endl;
@@ -82,19 +91,51 @@ __global__ void kernel3D(float* d_out) {
     }
 }
 
-void stress3D() {
-    const int N = 1 << 28;  // Número de elementos
-    float* d_out;
+void stress3D(int device, int targetGpuUsagePercentage) {
+    size_t freeMem, totalMem;
+    cudaMemGetInfo(&freeMem, &totalMem);
 
-    cudaMalloc((void**)&d_out, N * sizeof(float));
+    const size_t elementSize = sizeof(float);
+    size_t targetMem = static_cast<size_t>(freeMem * (targetGpuUsagePercentage / 100.0f));
+    int N = targetMem / elementSize;
+    float* d_out = nullptr;
+
+    cudaDeviceProp prop = getCudaDeviceProp(device);
+    int maxThreadsPerBlock = prop.maxThreadsPerBlock;
+
+    nvmlInit();
+    nvmlDevice_t nvmlDevice;
+    nvmlDeviceGetHandleByIndex(device, &nvmlDevice);
+
+    cudaMalloc((void**)&d_out, N * elementSize);
+
+    int blocksPerGrid;
+    int threadsPerGrid;
 
     while (!stopStress) {
-        // Aumentando a quantidade de blocos e threads
-        kernel3D << <(N + 255) / 256, 256 >> > (d_out);
-        cudaDeviceSynchronize();
+        // Monitorar uso atual da GPU
+        cudaMemGetInfo(&freeMem, &totalMem);
+
+        // Monitorar uso atual da GPU
+        nvmlUtilization_t utilization;
+        nvmlDeviceGetUtilizationRates(nvmlDevice, &utilization);
+
+        if (utilization.gpu < targetGpuUsagePercentage) {
+            // GPU abaixo do alvo, aumentar carga
+            size_t additionalMem = static_cast<size_t>(freeMem * ((targetGpuUsagePercentage - utilization.gpu) / 100.0f));
+            size_t newMemUsage = std::min(additionalMem, freeMem); // Garantir que não exceda a memória livre
+
+            blocksPerGrid = (freeMem / elementSize + maxThreadsPerBlock - 1) / maxThreadsPerBlock;
+            blocksPerGrid = static_cast<size_t>(blocksPerGrid * ((targetGpuUsagePercentage - utilization.gpu) / 100.0f));
+            threadsPerGrid = static_cast<size_t>(maxThreadsPerBlock * ((targetGpuUsagePercentage - utilization.gpu) / 100.0f));
+
+            kernel3D<<<blocksPerGrid, threadsPerGrid>>>(d_out);
+            cudaDeviceSynchronize();
+        }
     }
 
     cudaFree(d_out);
+    nvmlShutdown();
 }
 
 // Função para estressar a GPU com operações de decodificação de vídeo
@@ -145,7 +186,7 @@ void stressGPU(int level, int device) {
     switch (level) {
     case 1:
         std::cout << "Estressando a GPU com operações 3D..." << std::endl;
-        stress3D();
+        stress3D(0, 50);
         break;
     case 2:
         std::cout << "Estressando a GPU com cópia de memória..." << std::endl;
@@ -165,7 +206,7 @@ void stressGPU(int level, int device) {
         break;
     case 6:
         std::cout << "Estressando a GPU com todas as operações..." << std::endl;
-        stress3D();
+        stress3D(0,50);
         stressCopy();
         stressVideoDecode();
         stressVideoEncode();

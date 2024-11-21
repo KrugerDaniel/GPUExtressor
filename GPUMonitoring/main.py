@@ -46,7 +46,7 @@ def run_cuda(test_type):
         # Compila o código CUDA com nvcc
         subprocess.run(["nvcc", "gpu_extressor.cu", "-o", "gpu_extressor"], check=True)
         # Executa o programa compilado
-        subprocess.run(["./gpu_extressor", str(test_type)], check=True)
+        subprocess.run([".\gpu_extressor", str(test_type)], check=True)
         messagebox.showinfo("Execução", "Programa CUDA executado com sucesso!")
     except subprocess.CalledProcessError as e:
         messagebox.showerror("Erro", f"Falha ao executar o código CUDA: {e}")
