@@ -42,43 +42,28 @@ void getGPUInfo() {
 
 // Função para estressar a GPU com operações de cópia de memória
 void stressMemory() {
-    const int N = 1 << 28;  // Aumentando o número de elementos para uma cópia de memória maior
-    float* d_a, * d_b;
-    float* h_a = new float[N];
-    float* h_b = new float[N];
+    size_t totalMem = getCudaDeviceProp(0).totalGlobalMem;
 
-    // Alocação de memória na GPU
-    cudaMalloc((void**)&d_a, N * sizeof(float));
-    cudaMalloc((void**)&d_b, N * sizeof(float));
+    float* d_a;
+    float* d_b;
+    cudaMalloc((void**)&d_a, totalMem);
+    cudaMalloc((void**)&d_b, totalMem);
 
-    // Inicializa os dados na memória da CPU
-    for (int i = 0; i < N; ++i) {
-        h_a[i] = 1.0f;
-    }
+    while (!stopStress) {}
 
-    while (!stopStress) {
-        // Copia os dados para a memória da GPU
-        cudaMemcpy(d_a, h_a, N * sizeof(float), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_b, d_a, N * sizeof(float), cudaMemcpyDeviceToDevice);  // Cópia entre a GPU
-        cudaMemcpy(h_b, d_b, N * sizeof(float), cudaMemcpyDeviceToHost);  // Cópia de volta para a CPU
-    }
-
-    // Libera a memória alocada na GPU
     cudaFree(d_a);
     cudaFree(d_b);
-
-    delete[] h_a;
-    delete[] h_b;
 }
 
 // Função para estressar a GPU com operações de memória (alocação e desalocação repetidas)
-void stressCopy() {
-    const int N = 1 << 28;  // Aumentando o número de elementos para testar memória de forma mais intensiva
-    float* d_data;
+void stressCopy(int device) {
+    size_t totalMem = getCudaDeviceProp(device).totalGlobalMem;
+    
+    void* d_data;
 
     while (!stopStress) {
-        // Aloca e desaloca memória várias vezes
-        cudaMalloc((void**)&d_data, N * sizeof(float));
+        // Limitação da quantidade de memória alocada, chega no máximo em 89%
+        cudaMalloc(&d_data, totalMem);
         cudaFree(d_data);
     }
 }
@@ -190,7 +175,7 @@ void stressGPU(int level, int device) {
         break;
     case 2:
         std::cout << "Estressando a GPU com cópia de memória..." << std::endl;
-        stressCopy();
+        stressCopy(0);
         break;
     case 3:
         std::cout << "Estressando a GPU com decodificação de vídeo..." << std::endl;
@@ -207,7 +192,7 @@ void stressGPU(int level, int device) {
     case 6:
         std::cout << "Estressando a GPU com todas as operações..." << std::endl;
         stress3D(0,50);
-        stressCopy();
+        stressCopy(0);
         stressVideoDecode();
         stressVideoEncode();
         stressMemory();
