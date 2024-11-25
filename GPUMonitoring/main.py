@@ -9,6 +9,8 @@ import time
 from multiprocessing import Process
 import psutil
 
+# comando para compilar cuda -> nvcc -o gpu_extressor.dll -shared -Xcompiler -fPIC gpu_extressor.cu -lnvml
+
 
 def get_gpu_usage():
     command = [
