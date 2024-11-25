@@ -1,15 +1,28 @@
-#include <iostream>
 #include <cuda_runtime.h>
-#include <cuda.h>
-#include <vector>
+#include <cmath>
+#include <iostream>
 #include <atomic>
 #include <thread>
+#include <chrono>
 #include <nvml.h>
 
-// Comando mágico : nvcc gpu_extressor.cu -o gpu_extressor -L"C:\Program Files\NVIDIA Corporation\NVSMI" -lnvml
+// Variáveis atômicas para controle de execução
+std::atomic<bool> running_3d{ false };
+std::atomic<bool> running_mem{ false };
+std::atomic<bool> running_stressCopy{ false };
 
-// Variável global para controlar quando parar o estresse
-std::atomic<bool> stopStress(false);
+// Encapsular todas as funções exportadas em extern "C"
+extern "C" {
+
+    __declspec(dllexport) void startStress3D();
+    __declspec(dllexport) void stopStress3D();
+
+    __declspec(dllexport) void startStressMemory();
+    __declspec(dllexport) void stopStressMemory();
+
+    __declspec(dllexport) void startStressCopy();
+    __declspec(dllexport) void stopStressCopy();
+}
 
 cudaDeviceProp getCudaDeviceProp(int device) {
     cudaDeviceProp prop;
@@ -18,11 +31,13 @@ cudaDeviceProp getCudaDeviceProp(int device) {
     return prop;
 }
 
-// Função para obter informações da GPU
-void getGPUInfo() {
-    int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
+// Kernel de estresse 3D
+__global__ void stress3DKernel(float* output, int width, int height, int iterations) {
+    int x = threadIdx.x + blockIdx.x * blockDim.x;
+    int y = threadIdx.y + blockIdx.y * blockDim.y;
+    int idx = x + y * width;
 
+<<<<<<< Updated upstream
     if (deviceCount == 0) {
         std::cerr << "Nenhuma GPU CUDA disponível." << std::endl;
         return;
@@ -65,6 +80,14 @@ void stressCopy(int device) {
         // Limitação da quantidade de memória alocada, chega no máximo em 89%
         cudaMalloc(&d_data, totalMem);
         cudaFree(d_data);
+=======
+    if (x < width && y < height) {
+        float value = 0.0f;
+        for (int i = 0; i < iterations; ++i) {
+            value += sinf(x * y + i) * cosf(x - y + i);
+        }
+        output[idx] = value;
+>>>>>>> Stashed changes
     }
 }
 
@@ -76,7 +99,10 @@ __global__ void kernel3D(float* d_out) {
     }
 }
 
-void stress3D(int device, int targetGpuUsagePercentage) {
+// Controle do estresse 3D
+void startStress3D() {
+    int device = 0;
+    int targetGpuUsagePercentage = 50;
     size_t freeMem, totalMem;
     cudaMemGetInfo(&freeMem, &totalMem);
 
@@ -97,7 +123,7 @@ void stress3D(int device, int targetGpuUsagePercentage) {
     int blocksPerGrid;
     int threadsPerGrid;
 
-    while (!stopStress) {
+    while (true) {
         // Monitorar uso atual da GPU
         cudaMemGetInfo(&freeMem, &totalMem);
 
@@ -123,37 +149,49 @@ void stress3D(int device, int targetGpuUsagePercentage) {
     nvmlShutdown();
 }
 
-// Função para estressar a GPU com operações de decodificação de vídeo
-void stressVideoDecode() {
-    const int N = 1 << 28;  // Tamanho dos dados para simular a decodificação
-    uint8_t* d_data;
-
-    // Aloca memória na GPU
-    cudaMalloc((void**)&d_data, N * sizeof(uint8_t));
-
-    while (!stopStress) {
-        // Simula o processamento de vídeo decodificado (operando com os dados)
-        for (int i = 0; i < N; ++i) {
-            d_data[i] = (uint8_t)(i % 255);
-        }
-    }
-
-    cudaFree(d_data);
+void stopStress3D() {
+    running_3d = false;
 }
 
-// Função para estressar a GPU com operações de codificação de vídeo
-void stressVideoEncode() {
-    const int N = 1 << 28;  // Tamanho dos dados para simular a codificação
-    uint8_t* d_data;
-
-    // Aloca memória na GPU
-    cudaMalloc((void**)&d_data, N * sizeof(uint8_t));
-
-    while (!stopStress) {
-        // Simula o processamento de vídeo codificado (operando com os dados)
-        for (int i = 0; i < N; ++i) {
-            d_data[i] = (uint8_t)(i % 255);
+// Kernel de estresse de memória
+__global__ void stressMemoryKernel(float* d_mem, int size, int iterations) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx < size) {
+        for (int i = 0; i < iterations; ++i) {
+            d_mem[idx] = sinf(d_mem[idx]) + cosf(d_mem[idx]);
         }
+    }
+}
+
+// Controle do estresse de memória
+void startStressMemory() {
+    size_t totalMem = getCudaDeviceProp(0).totalGlobalMem;
+
+    float* d_a;
+    float* d_b;
+    cudaMalloc((void**)&d_a, totalMem);
+    cudaMalloc((void**)&d_b, totalMem);
+
+    while (true) {}
+
+    cudaFree(d_a);
+    cudaFree(d_b);
+}
+
+void stopStressMemory() {
+    running_mem = false;
+}
+
+// Kernel de multiplicação de matrizes
+__global__ void matrixMulKernel(float* A, float* B, float* C, int N) {
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+    if (row < N && col < N) {
+        float value = 0.0f;
+        for (int k = 0; k < N; ++k) {
+            value += A[row * N + k] * B[k * N + col];
+        }
+<<<<<<< Updated upstream
     }
 
     cudaFree(d_data);
@@ -199,50 +237,25 @@ void stressGPU(int level, int device) {
         break;
     default:
         std::cout << "Número inválido. Escolha um número entre 1 e 6." << std::endl;
+=======
+        C[row * N + col] = value;
+>>>>>>> Stashed changes
     }
 }
 
-// Função para permitir ao usuário parar o estresse com uma tecla
-void stopStressInput() {
-    char stop;
-    std::cout << "Digite 'q' para parar o estresse: ";
-    std::cin >> stop;
-    if (stop == 'q') {
-        stopStress = true;
+void startStressCopy() {
+    int device = 0;
+    size_t totalMem = getCudaDeviceProp(device).totalGlobalMem;
+
+    void* d_data;
+
+    while (true) {
+        // Limitação da quantidade de memória alocada, chega no máximo em 89%
+        cudaMalloc(&d_data, totalMem);
+        cudaFree(d_data);
     }
 }
 
-int main(int argc, char* argv[]) {
-    // Exibir as informações da GPU
-    getGPUInfo();
-
-    int level = std::atoi(argv[1]);
-
-    if (level < 1 || level > 6) {
-        /*std::cout << "Selecione o tipo de teste a ser feito:\n";
-        std::cout << "1 - Estressando a GPU com operações 3D\n";
-        std::cout << "2 - Estressando a GPU com cópia de memória\n";
-        std::cout << "3 - Estressando a GPU com decodificação de vídeo\n";
-        std::cout << "4 - Estressando a GPU com codificação de vídeo\n";
-        std::cout << "5 - Estressando a GPU com operações de memória\n";
-        std::cout << "6 - Estressando a GPU com todas as operações\n";
-        std::cout << "Escolha: ";
-
-        std::cin >> level;*/
-        std::cout << "Entre com valores de teste válidos!";
-        return 1;
-    }
-
-    // Estressar a GPU em um nível específico (por exemplo, nível 6)
-    std::thread stressThread(stressGPU, level, 0); // Modificar o número da GPU conforme necessário
-
-    // Aguardar a entrada do usuário para parar
-    std::thread stopThread(stopStressInput);
-    stopThread.join();
-
-    // Finalizar o estresse
-    stopStress = true;
-    stressThread.join();
-
-    return 0;
+void stopStressCopy() {
+    running_stressCopy = false;
 }
