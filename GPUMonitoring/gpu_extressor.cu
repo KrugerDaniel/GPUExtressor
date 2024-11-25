@@ -37,57 +37,12 @@ __global__ void stress3DKernel(float* output, int width, int height, int iterati
     int y = threadIdx.y + blockIdx.y * blockDim.y;
     int idx = x + y * width;
 
-<<<<<<< Updated upstream
-    if (deviceCount == 0) {
-        std::cerr << "Nenhuma GPU CUDA disponível." << std::endl;
-        return;
-    }
-
-    for (int device = 0; device < deviceCount; ++device) {
-        cudaDeviceProp prop = getCudaDeviceProp(device);
-        std::cout << "Informações da GPU " << device << ":\n";
-        std::cout << "  Nome: " << prop.name << std::endl;
-        std::cout << "  Memória Global: " << prop.totalGlobalMem / (1024 * 1024) << " MB" << std::endl;
-        std::cout << "  Arquitetura: " << prop.major << "." << prop.minor << std::endl;
-        std::cout << "  Núcleos de Processamento: " << prop.multiProcessorCount << std::endl;
-        std::cout << "  Frequência: " << prop.clockRate / 1000 << " MHz" << std::endl;
-        std::cout << std::endl;
-    }
-}
-
-// Função para estressar a GPU com operações de cópia de memória
-void stressMemory() {
-    size_t totalMem = getCudaDeviceProp(0).totalGlobalMem;
-
-    float* d_a;
-    float* d_b;
-    cudaMalloc((void**)&d_a, totalMem);
-    cudaMalloc((void**)&d_b, totalMem);
-
-    while (!stopStress) {}
-
-    cudaFree(d_a);
-    cudaFree(d_b);
-}
-
-// Função para estressar a GPU com operações de memória (alocação e desalocação repetidas)
-void stressCopy(int device) {
-    size_t totalMem = getCudaDeviceProp(device).totalGlobalMem;
-    
-    void* d_data;
-
-    while (!stopStress) {
-        // Limitação da quantidade de memória alocada, chega no máximo em 89%
-        cudaMalloc(&d_data, totalMem);
-        cudaFree(d_data);
-=======
     if (x < width && y < height) {
         float value = 0.0f;
         for (int i = 0; i < iterations; ++i) {
             value += sinf(x * y + i) * cosf(x - y + i);
         }
         output[idx] = value;
->>>>>>> Stashed changes
     }
 }
 
@@ -191,55 +146,7 @@ __global__ void matrixMulKernel(float* A, float* B, float* C, int N) {
         for (int k = 0; k < N; ++k) {
             value += A[row * N + k] * B[k * N + col];
         }
-<<<<<<< Updated upstream
-    }
-
-    cudaFree(d_data);
-}
-
-// Função para estressar a GPU com todas as operações
-void stressGPU(int level, int device) {
-    cudaSetDevice(device); // Seleciona a GPU correta
-
-    // Exemplo de adaptação do estresse com base na placa
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, device);
-    std::cout << "Usando a GPU: " << prop.name << std::endl;
-
-    switch (level) {
-    case 1:
-        std::cout << "Estressando a GPU com operações 3D..." << std::endl;
-        stress3D(0, 50);
-        break;
-    case 2:
-        std::cout << "Estressando a GPU com cópia de memória..." << std::endl;
-        stressCopy(0);
-        break;
-    case 3:
-        std::cout << "Estressando a GPU com decodificação de vídeo..." << std::endl;
-        stressVideoDecode();
-        break;
-    case 4:
-        std::cout << "Estressando a GPU com codificação de vídeo..." << std::endl;
-        stressVideoEncode();
-        break;
-    case 5:
-        std::cout << "Estressando a GPU com operações de memória..." << std::endl;
-        stressMemory();
-        break;
-    case 6:
-        std::cout << "Estressando a GPU com todas as operações..." << std::endl;
-        stress3D(0,50);
-        stressCopy(0);
-        stressVideoDecode();
-        stressVideoEncode();
-        stressMemory();
-        break;
-    default:
-        std::cout << "Número inválido. Escolha um número entre 1 e 6." << std::endl;
-=======
         C[row * N + col] = value;
->>>>>>> Stashed changes
     }
 }
 
