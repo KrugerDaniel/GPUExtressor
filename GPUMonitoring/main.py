@@ -1,13 +1,12 @@
 import ctypes
 import subprocess
-
-import numpy as np
-from GPUtil import GPUtil
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QPushButton, QWidget, QLabel, QHBoxLayout
-from PyQt5.QtCore import QTimer, Qt
 import time
-from multiprocessing import Process
 import psutil
+from GPUtil import GPUtil
+from PyQt5.QtWidgets import QApplication, QVBoxLayout, QPushButton, QWidget, QLabel, QHBoxLayout, QComboBox
+from PyQt5.QtCore import QTimer, Qt
+from multiprocessing import Process
+
 
 # comando para compilar cuda -> nvcc -o gpu_extressor.dll -shared -Xcompiler -fPIC gpu_extressor.cu -lnvml
 
@@ -47,27 +46,23 @@ def get_cpu_usage():
     return cpu_usage
 
 
-def stress_3d(width, height, iterations):
+def stress_3d(device, target_gpu_usage_percentage):
     cuda = ctypes.CDLL("./gpu_extressor.dll")
-    output = np.zeros(width * height, dtype=np.float32)
-    output_ptr = output.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    cuda.startStress3D()
+    cuda.startStress3D(device, target_gpu_usage_percentage)
     while True:
         time.sleep(1)
 
 
-def stress_memory(size, iterations):
+def stress_memory(device):
     cuda = ctypes.CDLL("./gpu_extressor.dll")
-    output = np.zeros(size, dtype=np.float32)
-    output_ptr = output.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    cuda.startStressMemory()
+    cuda.startStressMemory(device)
     while True:
         time.sleep(1)
 
 
-def stress_copy():
+def stress_copy(device):
     cuda = ctypes.CDLL("./gpu_extressor.dll")
-    cuda.startStressCopy()
+    cuda.startStressCopy(device)
     while True:
         time.sleep(1)
 
@@ -116,25 +111,34 @@ class StressTestApp(QWidget):
         self.cards_layout.addLayout(row_1)
         self.cards_layout.addLayout(row_2)
 
-        button_layout = QHBoxLayout()
+        combo_layout = QHBoxLayout()
+        combo_label = QLabel("Selecione o Nível de Estresse:")
+        combo_label.setStyleSheet("font-size: 18px; margin-left: 10px")
+        self.stress_level_combo = QComboBox()
+        self.stress_level_combo.addItems(["Baixo", "Médio", "Alto", "FODEO"])
+        self.stress_level_combo.setStyleSheet("font-size: 16px; padding: 5px; cursor: pointer")
+        self.stress_level_combo.setCursor(Qt.PointingHandCursor)
+        combo_layout.addWidget(combo_label)
+        combo_layout.addWidget(self.stress_level_combo)
+        combo_layout.addStretch()
 
+        button_layout = QHBoxLayout()
         self.btn_3d_start = QPushButton("Iniciar Estresse 3D")
         self.btn_3d_stop = QPushButton("Parar Estresse 3D")
         self.btn_mem_start = QPushButton("Iniciar Estresse Memória")
         self.btn_mem_stop = QPushButton("Parar Estresse Memória")
         self.btn_copy_start = QPushButton("Iniciar Operações de Cópia")
         self.btn_copy_stop = QPushButton("Parar Operações de Cópia")
-
         button_layout.addWidget(self.btn_3d_start)
         button_layout.addWidget(self.btn_3d_stop)
         button_layout.addWidget(self.btn_mem_start)
         button_layout.addWidget(self.btn_mem_stop)
         button_layout.addWidget(self.btn_copy_start)
         button_layout.addWidget(self.btn_copy_stop)
-
         self.style_buttons()
 
         layout.addLayout(self.cards_layout)
+        layout.addLayout(combo_layout)
         layout.addLayout(button_layout)
 
         self.setLayout(layout)
@@ -179,12 +183,14 @@ class StressTestApp(QWidget):
             }
         """
         self.setStyleSheet(style)
-        self.btn_3d_start.setCursor(Qt.PointingHandCursor)
-        self.btn_3d_stop.setCursor(Qt.PointingHandCursor)
-        self.btn_mem_start.setCursor(Qt.PointingHandCursor)
-        self.btn_mem_stop.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_start.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_stop.setCursor(Qt.PointingHandCursor)
+        buttons = [
+            self.btn_3d_start, self.btn_3d_stop,
+            self.btn_mem_start, self.btn_mem_stop,
+            self.btn_copy_start, self.btn_copy_stop
+        ]
+        for btn in buttons:
+            btn.setStyleSheet("font-size: 14px; padding: 5px; cursor: pointer")
+            btn.setCursor(Qt.PointingHandCursor)
 
     def create_gpu_card(self, title, value):
         card = QWidget()
@@ -196,7 +202,7 @@ class StressTestApp(QWidget):
         title_label.setAlignment(Qt.AlignCenter)
         value_label.setAlignment(Qt.AlignCenter)
 
-        title_label.setStyleSheet("font-size: 20px; margin: 0px; padding: 0px; max-height: 40%; border: none")
+        title_label.setStyleSheet("font-size: 20px; margin-top: 10px; padding: 0px; max-height: 40%; border: none")
         value_label.setStyleSheet("font-size: 25px; font-weight: 700;")
 
         card_layout.addWidget(title_label)
@@ -240,7 +246,16 @@ class StressTestApp(QWidget):
         self.cpu_usage_card.layout().itemAt(1).widget().setText(f"{cpu_usage} %")
 
     def start_stress_3d(self):
-        self.process_3d = Process(target=stress_3d, args=(1920, 1080, 10))
+        selected_level = self.stress_level_combo.currentText()
+        if selected_level == 'Baixo':
+            target_gpu_usage_percentage = 20
+        elif selected_level == 'Médio':
+            target_gpu_usage_percentage = 50
+        elif selected_level == 'Alto':
+            target_gpu_usage_percentage = 95
+        else:
+            target_gpu_usage_percentage = 100
+        self.process_3d = Process(target=stress_3d, args=(0, target_gpu_usage_percentage))
         self.process_3d.start()
         self.btn_3d_start.setEnabled(False)
         self.btn_3d_stop.setEnabled(True)
@@ -253,7 +268,7 @@ class StressTestApp(QWidget):
         self.btn_3d_stop.setEnabled(False)
 
     def start_stress_mem(self):
-        self.process_mem = Process(target=stress_memory, args=(10000000, 10))
+        self.process_mem = Process(target=stress_memory, args=(0,))
         self.process_mem.start()
         self.btn_mem_start.setEnabled(False)
         self.btn_mem_stop.setEnabled(True)
@@ -266,7 +281,7 @@ class StressTestApp(QWidget):
         self.btn_mem_stop.setEnabled(False)
 
     def start_stress_copy(self):
-        self.process_copy = Process(target=stress_copy)
+        self.process_copy = Process(target=stress_copy, args=(0,))
         self.process_copy.start()
         self.btn_copy_start.setEnabled(False)
         self.btn_copy_stop.setEnabled(True)

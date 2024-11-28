@@ -12,13 +12,13 @@ std::atomic<bool> running_stressCopy{ false };
 
 extern "C" {
 
-    __declspec(dllexport) void startStress3D();
+    __declspec(dllexport) void startStress3D(int device, int targetGpuUsagePercentage);
     __declspec(dllexport) void stopStress3D();
 
-    __declspec(dllexport) void startStressMemory();
+    __declspec(dllexport) void startStressMemory(int device);
     __declspec(dllexport) void stopStressMemory();
 
-    __declspec(dllexport) void startStressCopy();
+    __declspec(dllexport) void startStressCopy(int device);
     __declspec(dllexport) void stopStressCopy();
 }
 
@@ -29,64 +29,77 @@ cudaDeviceProp getCudaDeviceProp(int device) {
     return prop;
 }
 
-__global__ void kernel3D(float* d_out) {
+__global__ void kernel3D(float* d_out, int maxIdx) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    d_out[idx] = sinf((float)idx) * cosf((float)idx);
+    if (idx < maxIdx) {
+        d_out[idx] = sinf((float)idx) * cosf((float)idx);
+    }
 }
 
-void startStress3D() {
-    int device = 0;
-    int targetGpuUsagePercentage = 50;
+void startStress3D(int device, int targetGpuUsagePercentage) {
     size_t freeMem, totalMem;
     cudaMemGetInfo(&freeMem, &totalMem);
 
     const size_t elementSize = sizeof(float);
     size_t targetMem = static_cast<size_t>(freeMem * (targetGpuUsagePercentage / 100.0f));
-    float* d_out;
+    int N = targetMem / elementSize;
+    float* d_out = nullptr;
 
     cudaDeviceProp prop = getCudaDeviceProp(device);
     int maxThreadsPerBlock = prop.maxThreadsPerBlock;
 
     nvmlInit();
     nvmlDevice_t nvmlDevice;
-    nvmlUtilization_t utilization;
     nvmlDeviceGetHandleByIndex(device, &nvmlDevice);
 
-    cudaMalloc(&d_out, targetMem);
+    cudaMalloc((void**)&d_out, N * elementSize);
 
-    int blocksPerGrid;
-    int threadsPerGrid;
+    int threadsPerBlock = maxThreadsPerBlock;
+    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-    while (true) {
-        cudaMemGetInfo(&freeMem, &totalMem);
-        nvmlDeviceGetUtilizationRates(nvmlDevice, &utilization);
+    running_3d = true;
 
-        if (utilization.gpu < targetGpuUsagePercentage) {
-            size_t additionalMem = static_cast<size_t>(freeMem * ((targetGpuUsagePercentage - utilization.gpu) / 100.0f));
-            size_t newMemUsage = std::min(additionalMem, freeMem);
+    std::thread stressThread([=]() mutable {
+        float integral = 0.0f;
 
-            blocksPerGrid = (freeMem / elementSize + maxThreadsPerBlock - 1) / maxThreadsPerBlock;
-            blocksPerGrid = static_cast<size_t>(blocksPerGrid * ((targetGpuUsagePercentage - utilization.gpu) / 100.0f));
-            threadsPerGrid = static_cast<size_t>(maxThreadsPerBlock * ((targetGpuUsagePercentage - utilization.gpu) / 100.0f));
+        while (running_3d) {
+            nvmlUtilization_t utilization;
+            nvmlDeviceGetUtilizationRates(nvmlDevice, &utilization);
 
-            kernel3D<<<blocksPerGrid, threadsPerGrid>>>(d_out);
+            float currentGpuUsage = static_cast<float>(utilization.gpu);
+            float error = static_cast<float>(targetGpuUsagePercentage) - currentGpuUsage;
+
+            integral += error;
+            float adjustment = error * 0.1f + integral * 0.0002f;
+
+            int dynamicBlocks = static_cast<int>(blocksPerGrid * (targetGpuUsagePercentage / 100.0f) + adjustment);
+
+            kernel3D<<<dynamicBlocks, threadsPerBlock>>>(d_out, N);
             cudaDeviceSynchronize();
-        }
-    }
 
-    cudaFree(d_out);
-    nvmlShutdown();
+            if (targetGpuUsagePercentage != 100) {
+                int sleepTime = std::max(20, 60 - static_cast<int>(std::abs(error) * 5));
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
+            }
+        }
+
+        cudaFree(d_out);
+        nvmlShutdown();
+    });
+
+
+    stressThread.detach();
 }
 
 void stopStress3D() {
     running_3d = false;
 }
 
-void startStressMemory() {
-    size_t totalMem = getCudaDeviceProp(0).totalGlobalMem;
+void startStressMemory(int device) {
+    size_t totalMem = getCudaDeviceProp(device).totalGlobalMem;
 
-    void* d_a;
-    cudaMalloc(&d_a, totalMem);
+    float* d_a;
+    cudaMalloc((void**)&d_a, totalMem);
 
     while (true) {}
 
@@ -97,14 +110,12 @@ void stopStressMemory() {
     running_mem = false;
 }
 
-void startStressCopy() {
-    int device = 0;
+void startStressCopy(int device) {
     size_t totalMem = getCudaDeviceProp(device).totalGlobalMem;
 
     void* d_data;
 
     while (true) {
-        // Obs: Limitação da quantidade de memória alocada, chega no máximo em 89%
         cudaMalloc(&d_data, totalMem);
         cudaFree(d_data);
     }
